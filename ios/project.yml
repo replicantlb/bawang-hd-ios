@@ -1,0 +1,35 @@
+name: BawangHD2DiOS
+options:
+  deploymentTarget:
+    iOS: '17.0'
+targets:
+  BawangHD2DiOS:
+    type: application
+    platform: iOS
+    supportedDestinations: [iOS]
+    sources:
+      - GameViewController.swift
+      - LocalGameServer.swift
+      - path: mobile.js
+        buildPhase: resources
+      - path: ../unpacked/AppIcon.xcassets
+        buildPhase: resources
+      - path: ../unpacked/app
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        INFOPLIST_FILE: Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: local.bawang.hd2d.ios
+        TARGETED_DEVICE_FAMILY: 1
+        SUPPORTED_PLATFORMS: iphoneos
+        SWIFT_VERSION: '5.0'
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+schemes:
+  BawangHD2DiOS:
+    build:
+      targets:
+        BawangHD2DiOS: all
+    run:
+      config: Debug

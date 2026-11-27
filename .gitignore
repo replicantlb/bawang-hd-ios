@@ -1,0 +1,13 @@
+.DS_Store
+/unpacked/
+/.hd-import-*/
+/build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.app
+*.ipa
+*.mobileprovision
+*.p12
+*.p8
+*.xcarchive

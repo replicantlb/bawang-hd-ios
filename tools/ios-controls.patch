@@ -1,0 +1,84 @@
+--- a/src/app.js
++++ b/src/app.js
+@@ -172,7 +172,11 @@
+ function setMode(m) {
+   // The map coming back (under the fade that brought it) takes up the 画质 chosen while it was away; a 退却 pick is still the war.
+   if (m === strategy && document.body.dataset.screen !== 'war') strategy.use(mapKind(), { cut: true });
+-  mode = m; document.body.classList.toggle('flat2d', !!m.flatHud); document.body.classList.toggle('flatmap', !!m.flat && !m.flatHud); $('#tip').hidden = true; post.setView(m.scene, m.camera); setProfile(); labels.domElement.replaceChildren(); resize(); syncHd2dRow();
++  mode = m;
++  if (document.documentElement.dataset.iosGame === 'true') {
++    document.body.dataset.mapView = m === strategy ? 'strategy' : m === war ? 'war' : '';
++  }
++  document.body.classList.toggle('flat2d', !!m.flatHud); document.body.classList.toggle('flatmap', !!m.flat && !m.flatHud); $('#tip').hidden = true; post.setView(m.scene, m.camera); setProfile(); labels.domElement.replaceChildren(); resize(); syncHd2dRow();
+ }
+ // Post profile per scene (post.js PROFILES); the title shares the strategy scene, so the screen decides.
+ let profileKey = '';
+@@ -1313,7 +1317,7 @@
+       h('div', { class: 'mp-head' }, h('h4', {}, title), h('span', { class: 'hint' }, note)),
+       h('div', { class: 'chips' }, ...cids.map((c) => h('button', { class: 'btn', onclick: () => done(c), ...point(c) }, cityName(c), describe(c) ? h('small', {}, describe(c)) : null)),
+         required ? null : h('button', { class: 'btn ghost', onclick: () => done(null) }, '取消', h('kbd', { 'data-glyph': 'b' }, 'Esc'))));
+-    mapPick = { cids: new Set(cids), done }; document.body.classList.add('picking');
++    mapPick = { cids: new Set(cids), done, required }; document.body.classList.add('picking');
+     layer().append(panel); addEventListener('keydown', esc, true);
+   });
+ }
+@@ -2415,5 +2419,23 @@
+   const res = await runTactical({ battle, hs: human, looks, view: tview, duel: duelStage(), audio, face, name, D, banner, message, profiles: battleProfiles, warm: () => prewarm(tview) });
+   document.body.classList.remove('cine'); return res;
+ }
+-window.__game = { qualityIdle, get g() { return g; }, get mode() { return document.body.dataset.screen; }, io, G, audio, strategy, tview, get war() { return war; }, pad: { get state() { return { zone: (z => z instanceof Element ? z.className || z.tagName : z)(padZone()), cur: { ...cur, hit: undefined }, input: document.body.dataset.input, family: pad.family, confirm: pad.confirm }; } }, debug: { renderer, quality, holdCommand: (on) => { busy = !!on; }, setupWar, fieldWar, cutIn, quickTactical, settleMenu, duelView: dview, post, show: (k) => setMode({ strategy, tview, dview }[k]) } };
++// The iOS shell routes touch to the same view and cancellation actions as the other inputs.
++const mapInput = {
++  get view() {
++    if (mode === strategy && (document.body.dataset.screen === 'strategy' || mapPick)) return strategy;
++    return mode === war ? war : null;
++  },
++  get canCancel() {
++    if (mapPick) return !mapPick.required;
++    if (mode === strategy) return !!scenic || sel != null;
++    return mode === war && !!war && !war.st.deploying && !war.st.busy &&
++      (war.st.peek != null || war.st.cast != null || war.st.sel != null);
++  },
++  cancel() {
++    if (mapPick) { if (!mapPick.required) mapPick.done(null); }
++    else if (mode === strategy) { if (scenic) setScenic(false); else onCity(null); }
++    else if (mode === war) war?.cancel();
++  },
++};
++window.__game = { mapInput, qualityIdle, get g() { return g; }, get mode() { return document.body.dataset.screen; }, io, G, audio, strategy, tview, get war() { return war; }, pad: { get state() { return { zone: (z => z instanceof Element ? z.className || z.tagName : z)(padZone()), cur: { ...cur, hit: undefined }, input: document.body.dataset.input, family: pad.family, confirm: pad.confirm }; } }, debug: { renderer, quality, holdCommand: (on) => { busy = !!on; }, setupWar, fieldWar, cutIn, quickTactical, settleMenu, duelView: dview, post, show: (k) => setMode({ strategy, tview, dview }[k]) } };
+ { const rec = pendingLoad(); if (rec) begin(rec, true); else title(); }
+--- a/src/tacticalhud.js
++++ b/src/tacticalhud.js
+@@ -33,9 +33,11 @@
+   const rate = () => speed / 2;
+   view.setSpeed(rate()); // starts at the 游戏速度 (src/pace.js); the 0.5×–4× buttons change it for this battle
+   const resume = () => { const w = wake; wake = null; w?.(); };
+-  let opening = null; // the 开始交战 prompt while the opening pause holds
++  const ios = document.documentElement.dataset.iosGame === 'true';
++  let waitingToStart = true;
++  let opening = null; // the desktop prompt while the opening pause holds
+   let pauseClock = () => {}; // the round pace's stopwatch (set by the loop)
+-  const setPaused = (on) => { if (on !== paused) pauseClock(on); paused = on; if (!on) { opening?.remove(); opening = null; resume(); } detail(); drawConsole(); };
++  const setPaused = (on) => { if (on !== paused) pauseClock(on); paused = on; if (!on) { waitingToStart = false; opening?.remove(); opening = null; resume(); } detail(); drawConsole(); };
+   // Each squad's exact strength shows on its bar while the battle is paused (and while Alt is held, app.js).
+   const detail = () => document.body.classList.toggle('tq-detail', paused);
+ 
+@@ -129,7 +131,8 @@
+       h('div', { class: 'tq-orders' }, h('div', { class: 'tq-label' }, '将令'), ...rows),
+       h('div', { class: 'tq-side' }, h('div', { class: 'tq-label' }, '战术'), tactics,
+         h('div', { class: 'tq-ctrl' },
+-          h('button', { class: `tq-btn ${paused ? 'on' : ''}`, title: '暂停／继续（空格）', 'data-pad': 'start', onclick: () => setPaused(!paused) }, paused ? '▶ 继续' : '❚❚ 暂停', h('kbd', { class: 'pad-only' })),
++          h('button', { class: `tq-btn ${ios && waitingToStart ? 'primary' : paused ? 'on' : ''}`, title: '暂停／继续（空格）', 'data-pad': 'start', onclick: () => setPaused(!paused) },
++            ios && waitingToStart ? '开始交战' : paused ? '▶ 继续' : '❚❚ 暂停', h('kbd', { class: 'pad-only' })),
+           h('div', { class: 'tq-speed' }, h('kbd', { class: 'pad-only', 'data-glyph': 'lt' }), ...[0.5, 1, 2, 4].map((v) => h('button', { class: `tq-btn ${speed === v ? 'on' : ''}`, title: v < 1 ? '慢速：动画与节奏放慢一半' : null, onclick: () => { speed = v; view.setSpeed(rate()); drawConsole(); } }, `${v}×`)), h('kbd', { class: 'pad-only', 'data-glyph': 'rt' })),
+           h('button', { class: `tq-btn ${auto ? 'on' : ''}`, title: '由电脑按原版规则为我军下令', 'data-pad': 'y', onclick: () => { auto = !auto; if (auto) { battle.aiCommands(hs); } drawConsole(); } }, '自动', h('kbd', { class: 'pad-only' })),
+           h('button', { class: 'tq-btn warn', onclick: () => { battle.withdrawAll(hs); log('<em>全军撤退！</em>'); drawConsole(); } }, '全军撤退'))));
+@@ -342,7 +345,7 @@
+   setTimeout(frame, 700); addEventListener('resize', frame);
+   log(`${name(S.id)}：${FORMATIONS[S.formation]}之阵`);
+   await banner('白兵战　开始', looks[hs] === 'attacker' ? '#6ab8ff' : '#ff8a70');
+-  if (paused) {
++  if (paused && !ios) {
+     opening = h('div', { class: 'tq-ask tq-start' },
+       h('p', {}, '两军列阵完毕', h('br'), h('small', {}, '可先下达将令、施展战术，准备好后开始交战。'), h('br'), h('small', {}, '暂停时或按住 Alt 可看各队兵数。')),
+       h('div', {}, h('button', { class: 'tq-btn primary', 'data-pad': 'start', onclick: () => setPaused(false) }, '开始交战', h('kbd', {}, '空格'))));
